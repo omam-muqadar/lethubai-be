@@ -1,0 +1,5 @@
+{
+  "appService.zipIgnorePattern": ["node_modules{,/**}", ".vscode{,/**}"],
+  "appService.defaultWebAppToDeploy": "/subscriptions/7fa73940-4116-4ff3-9376-6327aa98b689/resourceGroups/lethub/providers/Microsoft.Web/sites/lethubai",
+  "appService.deploySubpath": "."
+}
