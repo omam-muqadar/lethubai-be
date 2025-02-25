@@ -5,6 +5,7 @@ const { OpenAI } = require("openai");
 const dotenv = require("dotenv");
 const fs = require("fs");
 const path = require("path");
+const { default: axios } = require("axios");
 
 dotenv.config();
 const app = express();
@@ -146,6 +147,86 @@ app.post("/voice-ai", upload.single("audio"), async (req, res) => {
     console.error("Error:", error);
     res.status(500).json({ error: "Something went wrong" });
   }
+});
+
+app.post("/voice-ai-weather", upload.single("audio"), async (req, res) => {
+  try {
+    const audioFilePath = req.file.path;
+
+    // Step 1: Convert Speech to Text (STT)
+    const transcription = await openai.audio.transcriptions.create({
+      model: "whisper-1",
+      file: fs.createReadStream(audioFilePath),
+    });
+
+    const userText = transcription.text.toLowerCase();
+    console.log("User said:", userText);
+
+    let aiResponseText;
+
+    if (userText.includes("weather") || userText.includes("temperature")) {
+      // Extract location (For simplicity, assuming user mentions a city in the request)
+      const location = userText.split("in ")[1] || "New York"; // Default to New York if no location found
+
+      // Step 2: Fetch Weather Data
+      const weatherApiKey = process.env.WEATHER_API_KEY;
+      const weatherResponse = await axios.get(
+        `https://api.weatherapi.com/v1/current.json?key=${weatherApiKey}&q=${location}`
+      );
+
+      const weatherData = weatherResponse.data;
+      aiResponseText = `The current temperature in ${weatherData.location.name} is ${weatherData.current.temp_c} degrees Celsius with ${weatherData.current.condition.text}.`;
+    } else {
+      // Step 3: Get AI Response (LLM)
+      const gptResponse = await openai.chat.completions.create({
+        model: "gpt-4-turbo",
+        messages: [{ role: "user", content: userText }],
+      });
+
+      aiResponseText = gptResponse.choices[0].message.content;
+    }
+
+    console.log("AI Response:", aiResponseText);
+
+    // Step 4: Convert AI Response to Speech (TTS)
+    const ttsResponse = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "alloy",
+      input: aiResponseText,
+    });
+
+    // Save the AI-generated voice response
+    const outputPath = "output.mp3";
+    const buffer = Buffer.from(await ttsResponse.arrayBuffer());
+    fs.writeFileSync(outputPath, buffer);
+
+    // Send response
+    res.sendFile(outputPath, { root: __dirname }, () => {
+      fs.unlinkSync(audioFilePath);
+      fs.unlinkSync(outputPath);
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: "Something went wrong" });
+  }
+});
+
+app.get("/session", async (req, res) => {
+  const r = await fetch("https://api.openai.com/v1/realtime/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-realtime-preview-2024-12-17",
+      voice: "alloy",
+    }),
+  });
+  const data = await r.json();
+
+  // Send back the JSON we received from the OpenAI REST API
+  res.send(data);
 });
 
 const PORT = process.env.PORT || 8080; // Use Azure's port
